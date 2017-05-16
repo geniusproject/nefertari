@@ -288,15 +288,17 @@ class ESActionRegistry(metaclass=ThreadLocalSingletonMeta):
     @staticmethod
     def force_indexation(actions):
         failed_actions = []
+        try:
+            for action in actions:
+                successful, error = action()
 
-        for action in actions:
-            successful, error = action()
-
-            if not successful:
-                # handle failed action, maybe schedule reindex round
-                failed_actions.append((action, error))
-            if failed_actions:
-                raise ESBulkException([error for action, error in failed_actions])
+                if not successful:
+                    # handle failed action, maybe schedule reindex round
+                    failed_actions.append((action, error))
+                if failed_actions:
+                    raise ESBulkException([error for action, error in failed_actions])
+        except Exception as e:
+            log.error('EXCEPTION INSIDE FORCE INDEXATION ----->>>>{}'.format(e))
 
 
 class ESBulkException(ElasticsearchException):

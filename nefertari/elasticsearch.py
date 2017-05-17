@@ -51,7 +51,7 @@ class ESHttpConnection(elasticsearch.Urllib3HttpConnection):
                 if len(msg) > 512:
                     msg = msg[:300] + '...TRUNCATED...' + msg[-212:]
                 log.debug(msg)
-            kw['request_timeout'] = 60
+            kw['timeout'] = 60
             resp = super(ESHttpConnection, self).perform_request(*args, **kw)
         except TransportError as e:
             status_code = e.status_code

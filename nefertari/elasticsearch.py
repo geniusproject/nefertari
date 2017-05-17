@@ -298,7 +298,9 @@ class ESActionRegistry(metaclass=ThreadLocalSingletonMeta):
                 if failed_actions:
                     raise ESBulkException([error for action, error in failed_actions])
         except Exception as e:
+            action_types = [item.get('_op_type') for item in action.params['actions']]
             log.error('EXCEPTION INSIDE FORCE INDEXATION ----->>>>{}'.format(e))
+            log.error('EXCEPTION CAUSED BY {}'.format(action_types))
             raise
 
 

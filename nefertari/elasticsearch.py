@@ -299,6 +299,7 @@ class ESActionRegistry(metaclass=ThreadLocalSingletonMeta):
                     raise ESBulkException([error for action, error in failed_actions])
         except Exception as e:
             log.error('EXCEPTION INSIDE FORCE INDEXATION ----->>>>{}'.format(e))
+            raise
 
 
 class ESBulkException(ElasticsearchException):
@@ -359,9 +360,9 @@ class ES(object):
                     sniff_on_start=True,
                     sniff_on_connection_fail=True
                 )
-                
+
             if cls.settings.asint('request_timeout'):
-                params.update({'request_timeout': cls.settings.asint('request_timeout')})
+                params.update({'timeout': cls.settings.asint('request_timeout')})
 
             cls.api = elasticsearch.Elasticsearch(
                 hosts=hosts, serializer=engine.ESJSONSerializer(),

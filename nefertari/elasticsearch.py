@@ -51,7 +51,6 @@ class ESHttpConnection(elasticsearch.Urllib3HttpConnection):
                 if len(msg) > 512:
                     msg = msg[:300] + '...TRUNCATED...' + msg[-212:]
                 log.debug(msg)
-            kw['timeout'] = 60
             resp = super(ESHttpConnection, self).perform_request(*args, **kw)
         except TransportError as e:
             status_code = e.status_code
@@ -361,9 +360,6 @@ class ES(object):
                     sniff_on_start=True,
                     sniff_on_connection_fail=True
                 )
-
-            if cls.settings.asint('request_timeout'):
-                params.update({'timeout': cls.settings.asint('request_timeout')})
 
             cls.api = elasticsearch.Elasticsearch(
                 hosts=hosts, serializer=engine.ESJSONSerializer(),

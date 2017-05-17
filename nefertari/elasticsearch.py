@@ -359,6 +359,9 @@ class ES(object):
                     sniff_on_start=True,
                     sniff_on_connection_fail=True
                 )
+                
+            if cls.settings.asint('request_timeout'):
+                params.update({'request_timeout': cls.settings.asint('request_timeout')})
 
             cls.api = elasticsearch.Elasticsearch(
                 hosts=hosts, serializer=engine.ESJSONSerializer(),

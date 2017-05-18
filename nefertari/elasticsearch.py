@@ -360,14 +360,24 @@ class ES(object):
 
             params = {}
             if cls.settings.asbool('sniff'):
-                params = dict(
-                    sniff_on_start=True,
-                    sniff_on_connection_fail=True
+                params.update(
+                    dict(
+                        sniff_on_start=True,
+                        sniff_on_connection_fail=True
+                    )
                 )
+            if cls.settings.asint('timeout'):
+                params.update(
+                    dict(
+                        timeout=cls.settings.asint('timeout'
+                                                   )
+                        )
+                    )
 
             cls.api = elasticsearch.Elasticsearch(
                 hosts=hosts, serializer=engine.ESJSONSerializer(),
                 connection_class=ESHttpConnection, **params)
+
             log.info('Including Elasticsearch. %s' % cls.settings)
 
         except AttributeError as e:

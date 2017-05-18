@@ -74,10 +74,11 @@ def main(argv=sys.argv):
     else:
         model_names = split_strip(options.models)
 
+    # Close all existed connections for avoid issue with concurrent access.
+    # more here: http://docs.sqlalchemy.org/en/latest/faq/connections.html#how-do-i-use-engines-connections-sessions-with-python-multiprocessing-or-os-fork
     BaseObject.metadata.bind.dispose()
 
-    consumers = map(lambda i: TaskConsumer(options=options, manager=manager),
-                     range(0, processes))
+    consumers = [TaskConsumer(options=options, manager=manager) for _ in range(processes)]
 
     producer = TaskProducer(options=options, model_names=model_names,
                             manager=manager, consumers_count=processes)
@@ -113,13 +114,12 @@ def _check_results(result):
 
 
 def process_tasks(consumers, producer, manager):
-    consumers = list(consumers)
     producer.start()
 
     for c in consumers:
         c.start()
 
-    manager.wait_for_processes()
+    manager.wait_for_exit()
     producer.join()
 
     return manager.results
@@ -178,7 +178,7 @@ class TaskProducer(Process):
         self.manager = kwargs.pop('manager')
         super().__init__(*args, **kwargs)
 
-    def run(self, *args, **kwargs):
+    def run(self):
         setup_app(self.options, put_mappings=False, lock=self.manager.app_initialize_lock)
 
         from sqlalchemy.orm import sessionmaker
@@ -237,10 +237,7 @@ class ProcessManager:
 
         self.tasks.close(consumers=range(0, self.consumers_count))
 
-    def wait_for_processes(self):
-        self.barrier.wait()
-
-    def process_finished(self):
+    def wait_for_exit(self):
         self.barrier.wait()
 
     def wait_for_consumers(self):
@@ -254,7 +251,7 @@ class TaskConsumer(Process):
         self.manager = kwargs.pop('manager')
         super().__init__(*args, **kwargs)
 
-    def run(self, *args, **kwargs):
+    def run(self):
         from pyramid_sqlalchemy import BaseObject
         from sqlalchemy.orm import sessionmaker
         from nefertari_sqla.documents import SessionHolder
@@ -284,7 +281,7 @@ class TaskConsumer(Process):
 
         log.info('indexing finished for process {} at {}'.format(self.pid, str(datetime.now())))
         self.manager.results.append(results)
-        self.manager.process_finished()
+        self.manager.wait_for_exit()
 
     def index_model(self, model_name, ids):
         from nefertari import engine
@@ -326,6 +323,7 @@ class ClosedQueueAdapter:
             message = self.queue.get(*args, **kwargs)
 
             if message is self.QUEUE_CLOSED_MESSAGE:
+                self.closed = True
                 raise QueueClosedException()
             return message
         raise QueueClosedException()

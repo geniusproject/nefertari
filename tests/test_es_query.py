@@ -1,7 +1,7 @@
 from mock import Mock
 import pytest
 
-from nefertari.es_query import (compile_es_query, Tokenizer, Buffer, apply_analyzer,
+from nefertari.es_query import (compile_es_query, Tokenizer, apply_analyzer,
                                 Node, TermBuilder, BoostParams)
 
 
@@ -26,49 +26,6 @@ class TestNode:
         tokens = ['(', '(', '(', 'token', ')', ')', 'token', '(', 'token', ')', ')']
         tree = Node.build_tree(tokens)
         assert tree == [[[['token']], 'token', ['token']]]
-
-
-class TestBuffer:
-
-    def test_buffer_cache(self):
-        buffer = Buffer()
-        buffer.cache('tmp')
-        assert buffer.cached == 'tmp'
-
-    def test_buffer_iadd(self):
-        buffer = Buffer('tmp')
-        buffer += ' tmp'
-        assert buffer == 'tmp tmp'
-
-    def test_buffer_clean_without_cached_value(self):
-        buffer = Buffer('tmp')
-        buffer.cache('another value')
-        buffer.clean(with_cache=False)
-        assert buffer.cached == 'another value'
-
-    def test_buffer_clean_with_cached_value(self):
-        buffer = Buffer('tmp')
-        buffer.cache('another value')
-        buffer.clean(with_cache=True)
-        assert buffer.cached == ''
-
-    def test_buffer_contains_value(self):
-        buffer = Buffer('first item')
-        buffer.cache('value')
-        assert 'first' in buffer
-        assert 'value' not in buffer
-
-    def test_buffer_equals(self):
-        buffer = Buffer('first item')
-        buffer.cache('value')
-        assert 'first item' == buffer
-        assert 'value' != buffer
-
-    def test_buffer_bool(self):
-        buffer = Buffer()
-        assert bool(buffer) is False
-        buffer += 'item'
-        assert bool(buffer) is True
 
 
 class TestBoostParams:
@@ -465,12 +422,12 @@ class TestESQueryCompilation(object):
                                                         'path': 'assignments_nested'}}]}}]}}
 
     def test_query_with_all_and_boost(self):
-        query_string = '_all:*name* AND obj_status:active'
+        query_string = '_all:*name with space* AND obj_status:active'
         params = {'es_q': query_string, '_boost': 'name:10,description:5'}
         result = compile_es_query(params)
-        expected_terms = [{'wildcard': {'_all': '*name*'}},
-                          {'wildcard': {'name': {'value': '*name*', 'boost': '10'}}},
-                          {'wildcard': {'description': {'value': '*name*', 'boost': '5'}}}]
+        expected_terms = [{'wildcard': {'_all': '*name with space*'}},
+                          {'wildcard': {'name': {'value': '*name with space*', 'boost': '10'}}},
+                          {'wildcard': {'description': {'value': '*name with space*', 'boost': '5'}}}]
 
         assert 'bool' in result
         assert 'must' in result['bool']
@@ -501,3 +458,12 @@ class TestESQueryCompilation(object):
         #     'minimum_should_match': 1
         # }}, {
         #     'term': {'obj_status': 'active'}}]}}]}}
+    def test_query_with_few_spaces_and_wildcard(self):
+        query_string = '(assignments.assignee_id:*john   smith and some other username   mike*) AND (assignments.is_completed:true)'
+        params = {'es_q': query_string, '_boost': 'assignments.assignee_id:5,assignments.is_completed:10'}
+        result = compile_es_query(params)
+        assert result == {'bool': {'must': [{'bool': {'must': [{'nested': {'query': {'bool': {
+            'must': [{'wildcard': {'assignments_nested.assignee_id':
+                                {'value': '*john   smith and some other username   mike*', 'boost': 5}}},
+                     {'term': {'assignments_nested.is_completed': {'value': 'true', 'boost': 10}}}]}},
+                                                        'path': 'assignments_nested'}}]}}]}}

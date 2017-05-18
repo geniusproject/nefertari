@@ -53,74 +53,35 @@ class Node:
 class Tokenizer:
     query_keywords = {'AND', 'OR', 'NOT'}
 
-    @classmethod
-    def append(cls, buffer, tokens):
-
-        value = buffer.value
-
-        if value not in Tokenizer.query_keywords:
-            cache = buffer.cached
-            if cache != value:
-                if cache:
-                    tokens.remove(cache)
-                    tokens.append(buffer.get_spaces().join([cache, value]))
-                else:
-                    tokens.append(value)
-                    buffer.cache(value)
-            else:
-                tokens.append(value)
-            buffer.clean()
-        else:
-            if value == 'NOT':
-                last_value = tokens.pop()
-                tokens.append(' '.join([last_value, value]))
-            else:
-                tokens.append(value)
-            buffer.clean(with_cache=True)
-            buffer.reset_spaces()
 
     @classmethod
     def tokenize(cls, query_string):
         """
-        split query string to tokens "(", ")", "field:value", "AND", "AND NOT", "OR", "OR NOT"
+        split query string to tokens "(", ")", "field:value", "AND", "AND NOT", "OR"
         :param values: string
         :return: array of tokens
         """
 
         tokens = []
         brackets = {'(', ')'}
-        buffer = Buffer()
-        in_term = False
+        buffer = ''
+        cursor = 0
+        keywords = re.compile('(\s+OR\s+|\s+AND NOT\s+|\s+AND\s+)')
 
-        for item in query_string:
-            if item == '[':
-                in_term = True
+        while cursor < len(query_string):
 
-            if item == ']':
-                in_term = False
-
-            if item == ' ' and buffer and not in_term:
-                buffer.add_space()
-                Tokenizer.append(buffer, tokens)
+            if query_string[cursor] in brackets:
+                tokens.append(query_string[cursor])
+                cursor += 1
                 continue
 
-            if item in brackets:
-                if buffer:
-                    cls.append(buffer, tokens)
-                tokens.append(item)
-                continue
-
-            if item == ' ' and not in_term:
-                buffer.add_space()
-                continue
-
-            buffer += item
-
-        if buffer:
-            Tokenizer.append(buffer, tokens)
+            while cursor < len(query_string) and query_string[cursor] not in brackets:
+                buffer += query_string[cursor]
+                cursor += 1
+            tokens.extend(list(filter(lambda s: s, map(lambda s: s.strip(), keywords.split(buffer)))))
+            buffer = ''
 
         Tokenizer._remove_needless_parentheses(tokens)
-
         return tokens
 
     @classmethod
@@ -157,47 +118,6 @@ class Tokenizer:
                 removed_token = tokens[needless_bracket]
                 tokens.remove(removed_token)
             cls._remove_needless_parentheses(tokens)
-
-
-class Buffer:
-    def __init__(self, value=''):
-        self.value = value
-        self.cached = ''
-        self.spaces_counter = 0
-
-    def reset_spaces(self):
-        self.spaces_counter = 0
-
-    def add_space(self):
-        self.spaces_counter += 1
-
-    def get_spaces(self):
-        return self.spaces_counter * ' '
-
-    def clean(self, with_cache=False):
-        self.value = ''
-        if with_cache:
-            self.cached = ''
-
-    def cache(self, cached):
-        self.cached = cached
-
-    def __bool__(self):
-        return bool(self.value)
-
-    def __eq__(self, other):
-        if isinstance(other, str):
-            return self.value == other
-        raise TypeError()
-
-    def __iadd__(self, other):
-        if isinstance(other, str):
-            self.value += other
-            return self
-        raise TypeError()
-
-    def __contains__(self, item):
-        return item in self.value
 
 
 class BoostParams:

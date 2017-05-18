@@ -41,7 +41,7 @@ class ESHttpConnection(elasticsearch.Urllib3HttpConnection):
             error_dict = data['items'][0]['index']
             message = error_dict['error']
         except (KeyError, IndexError) as e:
-            log.error('CONNECTION EXCEPTION {}'.format(e)
+            log.error('CONNECTION EXCEPTION 1{}'.format(e))
             return
         raise exception_response(400, detail=message)
 
@@ -60,13 +60,12 @@ class ESHttpConnection(elasticsearch.Urllib3HttpConnection):
                 raise IndexNotFoundException()
             if status_code == 'N/A':
                 status_code = 400
-            log.error('CONNECTION EXCEPTION {}'.format(e)
+            log.error('CONNECTION EXCEPTION 2{}'.format(e))
             raise exception_response(
                 status_code,
                 explanation=six.b(e.error),
                 extra=dict(data=e))
         else:
-            log.error('CONNECTION EXCEPTION {}'.format(resp)
             self._catch_index_error(resp)
             return resp
 

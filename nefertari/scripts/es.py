@@ -189,13 +189,14 @@ class TaskProducer(Process):
         self.Session = sessionmaker()
         self.Session.configure(bind=BaseObject.metadata.bind)
         SessionHolder().set_session_factory(self.Session)
+        session = self.Session()
 
         for model_name in self.model_names:
             model = engine.get_document_cls(model_name)
             limit = model.get_collection().count()
             table_name = model.__tablename__
             statement = text('SELECT {} FROM public.{}'.format(model.pk_field(), table_name))
-            query = self.Session().query(model).from_statement(statement)
+            query = session.query(model).from_statement(statement)
             items = list(map(lambda item: getattr(item, model.pk_field()) ,sorted(query.values(model.pk_field()))))
             chunks = list(TaskProducer.split_collection(limit, self.consumers_count, items))
 
@@ -264,6 +265,7 @@ class TaskConsumer(Process):
         self.Session = sessionmaker()
         self.Session.configure(bind=BaseObject.metadata.bind)
         SessionHolder().set_session_factory(self.Session)
+        session = self.Session()
 
         while True:
             try:
@@ -272,7 +274,7 @@ class TaskConsumer(Process):
                 break
 
             model_name, ids = data
-            results.append({model_name: self.index_model(model_name, ids)})
+            results.append({model_name: self.index_model(model_name, ids, session)})
 
             self.manager.tasks.task_done()
 
@@ -283,7 +285,7 @@ class TaskConsumer(Process):
         self.manager.results.append(results)
         self.manager.wait_for_exit()
 
-    def index_model(self, model_name, ids):
+    def index_model(self, model_name, ids, session):
         from nefertari import engine
         print('working with model {}'.format(model_name))
 
@@ -293,7 +295,7 @@ class TaskConsumer(Process):
 
         es = ES(source=model_name, index_name=self.options.index, chunk_size=chunk_size)
 
-        query_set = self.Session().query(model).filter(getattr(model, model.pk_field()).in_(ids)).all()
+        query_set = session.query(model).filter(getattr(model, model.pk_field()).in_(ids)).all()
         ids = [getattr(item, item.pk_field()) for item in query_set]
         documents = to_indexable_dicts(query_set)
 

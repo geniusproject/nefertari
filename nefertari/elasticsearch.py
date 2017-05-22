@@ -13,7 +13,7 @@ import six
 
 
 from nefertari.utils import (
-    dictset, dict2proxy, process_limit, split_strip, DataProxy, ThreadLocalSingletonMeta)
+    dictset, dict2proxy, process_limit, split_strip, DataProxy, ThreadLocalSingleton)
 from nefertari.json_httpexceptions import (JHTTPBadRequest, JHTTPNotFound,
                                            exception_response, JHTTPUnprocessableEntity)
 from nefertari import engine, RESERVED_PARAMS
@@ -261,7 +261,7 @@ class BoundAction(type):
         return es_action
 
 
-class ESActionRegistry(metaclass=ThreadLocalSingletonMeta):
+class ESActionRegistry(ThreadLocalSingleton):
 
     def __init__(self):
         self.registry = {}

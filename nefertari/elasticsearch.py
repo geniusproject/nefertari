@@ -321,7 +321,6 @@ class ESAction(metaclass=BoundAction):
 
     def __call__(self, *args, **kwargs):
         try:
-            self.params['timeout'] = '60s'
             executed_num, errors = helpers.bulk(**self.params)
             log.info('Successfully executed {} Elasticsearch action(s)'.format(
                 executed_num))

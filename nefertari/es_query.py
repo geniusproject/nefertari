@@ -2,6 +2,8 @@ import re
 from functools import reduce
 from abc import abstractmethod, abstractclassmethod
 
+from nefertari.utils import get_doc_types
+
 
 class OperationStack(list):
     es_keywords = {'AND': 'must', 'OR': 'should', 'AND NOT': 'must_not'}
@@ -468,7 +470,7 @@ class TermBuilder:
 
 
 def apply_analyzer(params, doc_type, get_document_cls):
-    documents = doc_type.split(',')
+    documents = get_doc_types(doc_type)
     properties = {}
 
     for document_name in documents:

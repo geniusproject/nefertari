@@ -1,5 +1,6 @@
 import logging
 import time
+from unittest import TestCase
 
 import six
 import pytest
@@ -18,7 +19,7 @@ class MockEngine(Mock):
         return mock_document
 
 
-class TestESActionRegistry(object):
+class TestESActionRegistry(TestCase):
 
     def test_get_latest_change(self):
         now = time.time()
@@ -27,7 +28,6 @@ class TestESActionRegistry(object):
         second_data = ESData(action={'_op_type': 'index', '_type': 'Item','_id': 2}, creation_time=later)
         gen = ES.registry.get_latest_change([first_data, second_data])
         result = next(gen)
-
         assert result == second_data
 
         with pytest.raises(StopIteration):
@@ -1302,7 +1302,7 @@ class TestES(object):
         params = obj.build_search_params({'_limit': 10})
         assert sorted(params.keys()) == sorted([
             'body', 'doc_type', 'from_', 'size', 'index'])
-        assert params['body'] == {'query': {'match_all': {}}}
+        assert params['body'] == {'query': {'bool': {'must': [{'match_all': {}}]}}}
         assert params['index'] == 'foondex'
         assert params['doc_type'] == 'Foo'
 

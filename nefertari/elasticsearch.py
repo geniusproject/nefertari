@@ -463,7 +463,6 @@ class ESData:
                and self.op_type == other.op_type
 
 
-
 class ESAction:
 
     def __init__(self, **params):
@@ -922,7 +921,7 @@ class ES(object):
         _params = ESQuery(
             index=self.index_name,
             doc_type=self.doc_type,
-            body={'query': {}}
+            body={'query': {'bool': {'must': []}}}
         )
         _raw_terms = params.pop('q', '')
 
@@ -931,7 +930,6 @@ class ES(object):
 
             query_string = self.build_qs(params.remove(RESERVED_PARAMS), _raw_terms)
             query = _params.get_query()
-            query.update({'bool': {'must': []}})
             must_query = query['bool']['must']
 
             if query_string:
@@ -942,19 +940,19 @@ class ES(object):
 
             if not must_query:
                 must_query.append({'match_all': {}})
+
         if 'body' in params:
             raise JHTTPUnprocessableEntity('Illegal parameter "body"')
 
         if '_limit' not in params:
             params['_limit'] = self.api.count(index=self.index_name)['count']
+
         _params['from_'], _params['size'] = process_limit(
             params.get('_start', None),
             params.get('_page', None),
             params['_limit'])
 
         if 'es_q' in params:
-            _params['body'] = {}
-
             try:
                 _params.replace_query(compile_es_query(params))
             except Exception as exc:
@@ -976,6 +974,10 @@ class ES(object):
 
             doc_cls = engine.get_document_cls(docs[0])
             sort_method = doc_cls.get_sort_method(params['_custom_sort'])
+
+            if not sort_method:
+                raise JHTTPBadRequest('sort method "{}" not supported'.format(params['_custom_sort']))
+
             identifiers = sort_method(limit=params.get('_limit'), offset=params.get('_start', 0))
             query = _params.get_query()
             query['bool']['must'].append({'ids': {'type': doc_cls.__name__, 'values': identifiers}})
@@ -1026,7 +1028,7 @@ class ES(object):
 
             if current_qs:
                 query_string['query_string']['fields'] = search_fields
-        print(_params)
+
         return _params
 
     def do_count(self, params):

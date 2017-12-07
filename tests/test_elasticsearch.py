@@ -1,6 +1,5 @@
 import logging
 import time
-from unittest import TestCase
 
 import six
 import pytest
@@ -12,14 +11,38 @@ from nefertari.utils import dictset
 from nefertari.elasticsearch import ES, ESData
 
 
-class MockEngine(Mock):
-    def get_document_cls(self, name):
-        mock_document = Mock()
-        mock_document.get_es_mapping = lambda: ({name: {'properties': {}}}, None)
+class MockEngine:
+    
+    def __init__(self, *args, **kwargs):
+        self.get_document_cls_func = kwargs.pop('get_document_cls')
+        super().__init__(*args, **kwargs)
+
+    def get_document_cls(self, *args, **kwargs):
+        return self.get_document_cls_func(*args, **kwargs)
+
+
+def get_document_cls_with_es_mapping(name):
+    mock_document = Mock()
+    mock_document.get_es_mapping = lambda: ({name: {'properties': {}}}, None)
+    mock_document.__name__ = name
+    return mock_document
+
+
+def get_document_cls_with_sort_methods_factory(order=list(), without_sort=False):
+    def sort_method(limit, offset):
+        return order
+
+    def get_document_cls_with_sort_methods(name):
+        mock_document = get_document_cls_with_es_mapping(name)
+        if without_sort:
+            mock_document.get_sort_method = lambda *args: None
+        else:
+            mock_document.get_sort_method = lambda *args: sort_method
         return mock_document
+    return MockEngine(get_document_cls=get_document_cls_with_sort_methods)
 
 
-class TestESActionRegistry(TestCase):
+class TestESActionRegistry(object):
 
     def test_get_latest_change(self):
         now = time.time()
@@ -1281,7 +1304,90 @@ class TestES(object):
     def test_add_nested_fields(self):
         pass
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', get_document_cls_with_sort_methods_factory(order=[5, 12, 34, 42, 11]))
+    def test_build_search_params_custom_sort(self):
+        
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo', 'foondex', chunk_size=122)
+        params = obj.build_search_params(
+            {'foo': 1, 'zoo': 2, 'q': 'name:5', '_limit': 10, '_custom_sort': 'default'}
+        )
+        assert sorted(params.keys()) == sorted([
+            'body', 'doc_type', 'from_', 'size', 'index'])
+        assert params['body'] == {'query': {'function_score': {'boost_mode': 'replace',
+                                                               'functions': [
+                                                                   {'filter': {'term': {'id': 5}}, 'weight': 5},
+                                                                   {'filter': {'term': {'id': 12}}, 'weight': 4},
+                                                                   {'filter': {'term': {'id': 34}}, 'weight': 3},
+                                                                   {'filter': {'term': {'id': 42}}, 'weight': 2},
+                                                                   {'filter': {'term': {'id': 11}}, 'weight': 1}],
+                                                               'query': {'bool': {'must': [
+                                                                   {'query_string': {'query': 'foo:1 AND zoo:2 AND name:5'}},
+                                                                   {'ids': {'type': 'Foo',
+                                                                            'values': [5, 12, 34, 42, 11]}}]}}}}}
+        assert params['index'] == 'foondex'
+        assert params['doc_type'] == 'Foo'
+
+    @patch('nefertari.elasticsearch.engine', get_document_cls_with_sort_methods_factory(order=[1, 2, 3, 5]))
+    def test_build_search_params_custom_sort_with_es_q(self):
+
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo', 'foondex', chunk_size=122)
+        params = obj.build_search_params(
+            { 'es_q': 'name:some AND status:active', '_limit': 10, '_custom_sort': 'default'}
+        )
+        print(params)
+        assert sorted(params.keys()) == sorted([
+            'body', 'doc_type', 'from_', 'size', 'index'])
+        assert params['body'] == {'query': {'function_score': {'query': {'bool': {
+            'must': [
+                {'bool': {'must': [
+                    {'term': {'name': 'some'}},
+                    {'term': {'status': 'active'}}
+                ]}},
+                {'ids': {'type': 'Foo', 'values': [1, 2, 3, 5]}}
+            ]}},
+            'boost_mode': 'replace', 'functions': [
+                {'filter': {'term': {'id': 1}}, 'weight': 4}, {'filter': {'term': {'id': 2}}, 'weight': 3},
+                {'filter': {'term': {'id': 3}}, 'weight': 2}, {'filter': {'term': {'id': 5}}, 'weight': 1}
+            ]}}}
+        assert params['index'] == 'foondex'
+        assert params['doc_type'] == 'Foo'
+
+    @patch('nefertari.elasticsearch.engine', get_document_cls_with_sort_methods_factory())
+    def test_build_search_params_custom_sort_with_sort(self):
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo', 'foondex', chunk_size=122)
+
+        with pytest.raises(JHTTPBadRequest) as exc:
+            obj.build_search_params(
+                {'foo': 1, 'zoo': 2, 'q': 'name:2', '_custom_sort': 'default', '_sort': 'name', '_limit': 10}
+            )
+        assert exc.value.message == '_custom_sort and _sort not allowed in one query'
+
+    @patch('nefertari.elasticsearch.engine', get_document_cls_with_sort_methods_factory())
+    def test_build_search_params_custom_sort_multidoc(self):
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo,Bar', 'foondex', chunk_size=122)
+
+        with pytest.raises(JHTTPBadRequest) as exc:
+            params = obj.build_search_params(
+                {'foo': 1, 'zoo': 2, 'q': '5', '_limit': 10, '_custom_sort': 'default'}
+            )
+        assert exc.value.message == '_custom_sort parameter does not support multidoc query'
+
+    @patch('nefertari.elasticsearch.engine', get_document_cls_with_sort_methods_factory(without_sort=True))
+    def test_build_search_params_custom_sort_not_found(self):
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo', 'foondex', chunk_size=122)
+
+        with pytest.raises(JHTTPBadRequest) as exc:
+            obj.build_search_params(
+                {'foo': 1, 'zoo': 2, 'q': 'name:2', '_custom_sort': 'default', '_limit': 10}
+            )
+        assert exc.value.message == 'sort method "default" not supported'
+
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_no_body(self):
         es.ES.document_proxies = {'Foo': None}
         obj = es.ES('Foo', 'foondex', chunk_size=122)
@@ -1295,7 +1401,7 @@ class TestES(object):
         assert params['index'] == 'foondex'
         assert params['doc_type'] == 'Foo'
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_no_body_no_qs(self):
         es.ES.document_proxies = {'Foo': None}
         obj = es.ES('Foo', 'foondex', chunk_size=500)
@@ -1306,7 +1412,7 @@ class TestES(object):
         assert params['index'] == 'foondex'
         assert params['doc_type'] == 'Foo'
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_no_limit(self):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         obj = es.ES('Foo', 'foondex', 123)
@@ -1323,7 +1429,7 @@ class TestES(object):
                           'from_': 0}
         obj.api.count.assert_called_once_with(index='foondex')
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_sort(self):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         obj = es.ES('Foo', 'foondex', 100)
@@ -1337,7 +1443,7 @@ class TestES(object):
         assert params['doc_type'] == 'Foo'
         assert params['sort'] == 'a:asc,b:desc,c:asc'
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_fields(self):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         es.ES.document_proxies = {'Foo': None}
@@ -1353,7 +1459,7 @@ class TestES(object):
         assert params['doc_type'] == 'Foo'
         assert params['fields'] == ['a']
 
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_search_fields(self):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         obj = es.ES('Foo', 'foondex', 200)
@@ -1468,7 +1574,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_fields(self, mock_api, mock_search):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         es.ES.document_proxy.update_document_proxies('Zoo', None)
@@ -1501,7 +1607,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_source(self, mock_api, mock_search):
         es.ES.document_proxy.update_document_proxies('Foo', None)
         es.ES.document_proxy.update_document_proxies('Zoo', None)
@@ -1534,7 +1640,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_no_index_raise(self, mock_api, mock_search):
         obj = es.ES('Foo', 'foondex', chunk_size=500)
         mock_search.side_effect = es.IndexNotFoundException()
@@ -1546,7 +1652,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_no_index_not_raise(self, mock_api,  mock_search):
         obj = es.ES('Foo', 'foondex', chunk_size=500)
         mock_search.side_effect = es.IndexNotFoundException()
@@ -1560,7 +1666,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_not_found_raise(self, mock_api, mock_search):
         obj = es.ES('Foo', 'foondex', chunk_size=500)
         mock_search.return_value = {
@@ -1577,7 +1683,7 @@ class TestES(object):
 
     @patch('nefertari.elasticsearch.ES.api.search')
     @patch('nefertari.elasticsearch.ES.api')
-    @patch('nefertari.elasticsearch.engine', MockEngine())
+    @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_get_collection_not_found_not_raise(self, mock_api, mock_search):
         obj = es.ES('Foo', 'foondex')
         mock_search.return_value = {
@@ -1703,3 +1809,10 @@ class TestES(object):
             es.ES.document_proxy.get_document_proxies_by_type('Bar')
         assert 'You have no proxy for this Bar document type' in str(excinfo)
 
+
+class TestESQuery:
+    def test_get_query(self):
+        pass
+
+    def test_replace_query(self):
+        pass

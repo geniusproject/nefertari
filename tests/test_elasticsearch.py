@@ -1371,7 +1371,7 @@ class TestES(object):
         obj = es.ES('Foo,Bar', 'foondex', chunk_size=122)
 
         with pytest.raises(JHTTPBadRequest) as exc:
-            params = obj.build_search_params(
+            obj.build_search_params(
                 {'foo': 1, 'zoo': 2, 'q': '5', '_limit': 10, '_custom_sort': 'default'}
             )
         assert exc.value.message == '_custom_sort parameter does not support multidoc query'

@@ -1387,6 +1387,25 @@ class TestES(object):
             )
         assert exc.value.message == 'sort method "default" not supported'
 
+    @patch('nefertari.elasticsearch.engine')
+    def test_custom_sort_method_params(self, mock_engine):
+
+        class MockDocument(Mock):
+            __name__ = 'MockDocument'
+
+        mock_document = MockDocument()
+        mock_sort_method = Mock()
+        mock_sort_method.return_value = [1, 2, 3, 4]
+        mock_document.get_sort_method = lambda *args, **kwargs: mock_sort_method
+        mock_document.get_es_mapping = lambda: ({'Foo': {'properties': {}}}, None)
+        mock_engine.get_document_cls = lambda name: mock_document
+        es.ES.document_proxies = {'Foo': None}
+        obj = es.ES('Foo', 'foondex', chunk_size=122)
+        obj.build_search_params(
+                {'foo': 1, 'zoo': 2, 'q': 'name:2', '_custom_sort': 'default', '_limit': 10, '_start': 1}
+        )
+        mock_sort_method.assert_called_once_with(offset=1, limit=10)
+
     @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_no_body(self):
         es.ES.document_proxies = {'Foo': None}

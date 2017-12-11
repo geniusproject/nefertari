@@ -20,7 +20,8 @@ RESERVED_PARAMS = [
     '_refresh_index',
     '_nested',
     '_es_q',
-    '_custom_sort'
+    '_custom_sort',
+    '_custom_sort_param'
 ]
 
 

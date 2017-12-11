@@ -19,7 +19,7 @@ from nefertari.utils import (
 from nefertari.json_httpexceptions import (JHTTPBadRequest, JHTTPNotFound,
                                            exception_response, JHTTPUnprocessableEntity)
 from nefertari import engine, RESERVED_PARAMS
-from nefertari.es_query import compile_es_query, apply_analyzer
+from nefertari.es_query import compile_es_query, apply_analyzer, smart_split
 
 log = logging.getLogger(__name__)
 
@@ -978,7 +978,14 @@ class ES(object):
             if not sort_method:
                 raise JHTTPBadRequest('sort method "{}" not supported'.format(params['_custom_sort']))
 
-            identifiers = sort_method(limit=params.get('_limit'), offset=params.get('_start', 0))
+            additional_param = None
+
+            if '_custom_sort_param' in params:
+                additional_param = smart_split(params['_custom_sort_param'])
+
+            identifiers = sort_method(limit=params.get('_limit'),
+                                      offset=params.get('_start', 0),
+                                      additional_param=additional_param)
             query = _params.get_query()
             query['bool']['must'].append({'ids': {'type': doc_cls.__name__, 'values': identifiers}})
 

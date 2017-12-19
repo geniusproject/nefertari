@@ -967,6 +967,7 @@ class ES(object):
             raise JHTTPBadRequest('_custom_sort and _sort not allowed in one query')
 
         if '_custom_sort' in params:
+
             docs = get_doc_types(self.doc_type)
 
             if len(docs) > 1:
@@ -978,14 +979,14 @@ class ES(object):
             if not sort_method:
                 raise JHTTPBadRequest('sort method "{}" not supported'.format(params['_custom_sort']))
 
-            additional_param = None
+            query_param = None
 
             if '_custom_sort_param' in params:
-                additional_param = smart_split(params['_custom_sort_param'])
+                query_param = smart_split(params['_custom_sort_param'])
 
             identifiers = sort_method(limit=params.get('_limit'),
-                                      offset=params.get('_start', 0),
-                                      additional_param=additional_param)
+                                      offset=int(params.get('_start', 0)),
+                                      query_param=query_param)
             query = _params.get_query()
             query['bool']['must'].append({'ids': {'type': doc_cls.__name__, 'values': identifiers}})
 
@@ -996,6 +997,8 @@ class ES(object):
                     'functions': self.build_function_score(identifiers)
                 }
             })
+            # pagination already implemented by offset and limit in sql query
+            _params['from_'] = 0
 
         if '_sort' in params and self.proxy:
             params['_sort'] = substitute_nested_terms(params['_sort'], self.proxy.substitutions)

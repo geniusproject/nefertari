@@ -29,7 +29,7 @@ def get_document_cls_with_es_mapping(name):
 
 
 def get_document_cls_with_sort_methods_factory(order=list(), without_sort=False):
-    def sort_method(limit, offset):
+    def sort_method(limit, offset, query_param=None):
         return order
 
     def get_document_cls_with_sort_methods(name):
@@ -1336,7 +1336,7 @@ class TestES(object):
         params = obj.build_search_params(
             { 'es_q': 'name:some AND status:active', '_limit': 10, '_custom_sort': 'default'}
         )
-        print(params)
+
         assert sorted(params.keys()) == sorted([
             'body', 'doc_type', 'from_', 'size', 'index'])
         assert params['body'] == {'query': {'function_score': {'query': {'bool': {
@@ -1404,7 +1404,7 @@ class TestES(object):
         obj.build_search_params(
                 {'foo': 1, 'zoo': 2, 'q': 'name:2', '_custom_sort': 'default', '_limit': 10, '_start': 1}
         )
-        mock_sort_method.assert_called_once_with(offset=1, limit=10)
+        mock_sort_method.assert_called_once_with(offset=1, limit=10, query_param=None)
 
     @patch('nefertari.elasticsearch.engine', MockEngine(get_document_cls=get_document_cls_with_es_mapping))
     def test_build_search_params_no_body(self):

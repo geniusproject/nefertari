@@ -208,3 +208,7 @@ def is_document(data):
         * Have '_type' key in it
     """
     return isinstance(data, dict) and '_type' in data
+
+
+def get_doc_types(doc_type):
+    return doc_type.split(',')

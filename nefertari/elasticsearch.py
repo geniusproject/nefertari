@@ -15,11 +15,11 @@ import six
 
 
 from nefertari.utils import (
-    dictset, dict2proxy, process_limit, split_strip, DataProxy)
+    dictset, dict2proxy, process_limit, split_strip, DataProxy, get_doc_types)
 from nefertari.json_httpexceptions import (JHTTPBadRequest, JHTTPNotFound,
                                            exception_response, JHTTPUnprocessableEntity)
 from nefertari import engine, RESERVED_PARAMS
-from nefertari.es_query import compile_es_query, apply_analyzer
+from nefertari.es_query import compile_es_query, apply_analyzer, smart_split
 
 log = logging.getLogger(__name__)
 
@@ -451,6 +451,16 @@ class ESData:
 
     def __repr__(self):
         return str(self.op_type) + ' ' + str(self.id) + ' ' + self.entity_type + ' ' + str(self.creation_time)
+
+    def __eq__(self, other):
+        if not isinstance(other, ESData):
+            raise TypeError()
+
+        return self.action == other.action \
+               and self.creation_time == other.creation_time \
+               and self.entity_type == other.entity_type \
+               and self.id == other.id \
+               and self.op_type == other.op_type
 
 
 class ESAction:
@@ -908,9 +918,10 @@ class ES(object):
     def build_search_params(self, params):
         params = dictset(params)
 
-        _params = dict(
+        _params = ESQuery(
             index=self.index_name,
-            doc_type=self.doc_type
+            doc_type=self.doc_type,
+            body={'query': {'bool': {'must': []}}}
         )
         _raw_terms = params.pop('q', '')
 
@@ -918,35 +929,32 @@ class ES(object):
             analyzed_terms = apply_analyzer(params, self.doc_type, engine.get_document_cls)
 
             query_string = self.build_qs(params.remove(RESERVED_PARAMS), _raw_terms)
-
-            query = {'must': []}
+            query = _params.get_query()
+            must_query = query['bool']['must']
 
             if query_string:
-                query['must'].append({'query_string': {'query': query_string}})
+                must_query.append({'query_string': {'query': query_string}})
 
             if analyzed_terms:
-                query['must'].append(analyzed_terms)
+                must_query.append(analyzed_terms)
 
-            if query['must']:
-                _params['body'] = {'query': {'bool': query}}
-            else:
-                _params['body'] = {'query': {'match_all': {}}}
+            if not must_query:
+                must_query.append({'match_all': {}})
 
         if 'body' in params:
             raise JHTTPUnprocessableEntity('Illegal parameter "body"')
 
         if '_limit' not in params:
             params['_limit'] = self.api.count(index=self.index_name)['count']
+
         _params['from_'], _params['size'] = process_limit(
             params.get('_start', None),
             params.get('_page', None),
             params['_limit'])
 
         if 'es_q' in params:
-            _params['body'] = {}
-
             try:
-                _params['body']['query'] = compile_es_query(params)
+                _params.replace_query(compile_es_query(params))
             except Exception as exc:
                 log.exception('es_q parsing error: {exc}'.format(exc=exc))
                 raise JHTTPBadRequest('Bad query string for {params}'
@@ -954,6 +962,43 @@ class ES(object):
                                                 params=_params['body']['query']['query_string']['query']))
 
             log.debug('Parsed ES request body {body}'.format(body=_params['body']['query']))
+
+        if '_custom_sort' in params and '_sort' in params:
+            raise JHTTPBadRequest('_custom_sort and _sort not allowed in one query')
+
+        if '_custom_sort' in params:
+
+            docs = get_doc_types(self.doc_type)
+
+            if len(docs) > 1:
+                raise JHTTPBadRequest('_custom_sort parameter does not support multidoc query')
+
+            doc_cls = engine.get_document_cls(docs[0])
+            sort_method = doc_cls.get_sort_method(params['_custom_sort'])
+
+            if not sort_method:
+                raise JHTTPBadRequest('sort method "{}" not supported'.format(params['_custom_sort']))
+
+            query_param = None
+
+            if '_custom_sort_param' in params:
+                query_param = smart_split(params['_custom_sort_param'])
+
+            identifiers = sort_method(limit=params.get('_limit'),
+                                      offset=int(params.get('_start', 0)),
+                                      query_param=query_param)
+            query = _params.get_query()
+            query['bool']['must'].append({'ids': {'type': doc_cls.__name__, 'values': identifiers}})
+
+            _params.replace_query({
+                'function_score': {
+                    'query': query,
+                    'boost_mode': 'replace',
+                    'functions': self.build_function_score(identifiers)
+                }
+            })
+            # pagination already implemented by offset and limit in sql query
+            _params['from_'] = 0
 
         if '_sort' in params and self.proxy:
             params['_sort'] = substitute_nested_terms(params['_sort'], self.proxy.substitutions)
@@ -980,8 +1025,8 @@ class ES(object):
                         search_field = '.'.join(sf_terms)
 
                 search_fields[index] = search_field + '^' + str(index + 1)
-
-            must_query = _params['body']['query']['bool']['must']
+            query = _params.get_query()
+            must_query = query['bool']['must']
             query_string = {}
 
             for query_item in must_query:
@@ -1162,3 +1207,27 @@ class ES(object):
 
         for model_name, instances in index_map.items():
             cls(model_name).index_documents(instances)
+
+    @staticmethod
+    def build_function_score(ids):
+        functions = []
+        for index, _id in enumerate(ids):
+            functions.append({
+                "filter": {
+                    "term": {"id": _id}
+                },
+                "weight": len(ids) - index
+            })
+        return functions
+
+
+class ESQuery(dict):
+    def get_query(self):
+        if self['body']['query'].get('function_score'):
+            return self['body']['query']['function_score']['query']
+        return self['body']['query']
+
+    def replace_query(self, new_query):
+        if self['body']['query'].get('function_score'):
+            self['body']['query']['function_score']['query'] = new_query
+        self['body']['query'] = new_query

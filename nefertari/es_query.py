@@ -2,6 +2,8 @@ import re
 from functools import reduce
 from abc import abstractmethod, abstractclassmethod
 
+from nefertari.utils import get_doc_types
+
 
 class OperationStack(list):
     es_keywords = {'AND': 'must', 'OR': 'should', 'AND NOT': 'must_not'}
@@ -468,7 +470,7 @@ class TermBuilder:
 
 
 def apply_analyzer(params, doc_type, get_document_cls):
-    documents = doc_type.split(',')
+    documents = get_doc_types(doc_type)
     properties = {}
 
     for document_name in documents:
@@ -608,7 +610,7 @@ def smart_split(item, split_key=':'):
     split string in first matching with key
     :param item: string which contain field_name:value or field_name:[00:00:00 TO 01:00:00]
     :param split_key: key, which we use to split string
-    :return:
+    :return: (field_name, field_value)
     """
     split_index = item.find(split_key)
     return [item[0:split_index], item[split_index + 1:]]

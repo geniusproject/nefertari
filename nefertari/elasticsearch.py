@@ -993,6 +993,7 @@ class ES(object):
             _params.replace_query({
                 'function_score': {
                     'query': query,
+                    'score_mode': 'max',  # in case the same id appear multiples times in different 'functions'
                     'boost_mode': 'replace',
                     'functions': self.build_function_score(identifiers)
                 }

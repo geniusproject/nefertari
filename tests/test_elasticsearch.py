@@ -1314,7 +1314,8 @@ class TestES(object):
         )
         assert sorted(params.keys()) == sorted([
             'body', 'doc_type', 'from_', 'size', 'index'])
-        assert params['body'] == {'query': {'function_score': {'boost_mode': 'replace',
+        assert params['body'] == {'query': {'function_score': {'score_mode': 'max',
+                                                               'boost_mode': 'replace',
                                                                'functions': [
                                                                    {'filter': {'term': {'id': 5}}, 'weight': 5},
                                                                    {'filter': {'term': {'id': 12}}, 'weight': 4},
@@ -1334,7 +1335,7 @@ class TestES(object):
         es.ES.document_proxies = {'Foo': None}
         obj = es.ES('Foo', 'foondex', chunk_size=122)
         params = obj.build_search_params(
-            { 'es_q': 'name:some AND status:active', '_limit': 10, '_custom_sort': 'default'}
+            {'es_q': 'name:some AND status:active', '_limit': 10, '_custom_sort': 'default'}
         )
 
         assert sorted(params.keys()) == sorted([
@@ -1347,7 +1348,9 @@ class TestES(object):
                 ]}},
                 {'ids': {'type': 'Foo', 'values': [1, 2, 3, 5]}}
             ]}},
-            'boost_mode': 'replace', 'functions': [
+            'score_mode': 'max',
+            'boost_mode': 'replace',
+            'functions': [
                 {'filter': {'term': {'id': 1}}, 'weight': 4}, {'filter': {'term': {'id': 2}}, 'weight': 3},
                 {'filter': {'term': {'id': 3}}, 'weight': 2}, {'filter': {'term': {'id': 5}}, 'weight': 1}
             ]}}}
